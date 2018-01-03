@@ -7,8 +7,9 @@ import * as cp from 'child_process';
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
 export function activate(context: ExtensionContext) {
-    const p = cp.exec('npm run test');
-
+	console.log(workspace.workspaceFolders[0].uri.path);
+	const cwd = workspace.workspaceFolders[0].uri.path;
+    const p = cp.exec("karma start --single-run", {cwd: cwd});
 		p.stderr.on('data', (chunk: string) => {
             console.log("----got some data stderr");
             console.log(chunk);
