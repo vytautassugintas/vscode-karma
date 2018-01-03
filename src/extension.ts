@@ -1,13 +1,11 @@
 'use strict';
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
-import {window, commands, workspace, Range, OverviewRulerLane, DecorationOptions, Disposable, ExtensionContext, StatusBarAlignment, StatusBarItem, TextDocument} from 'vscode';
+import {window, commands, workspace, Range, OverviewRulerLane, DecorationRangeBehavior, DecorationOptions, Disposable, ExtensionContext, StatusBarAlignment, StatusBarItem, TextDocument, Position, TextLine} from 'vscode';
 import * as cp from 'child_process';
 
-// this method is called when your extension is activated
-// your extension is activated the very first time the command is executed
 export function activate(context: ExtensionContext) {
 	console.log(workspace.workspaceFolders[0].uri.path);
+	let failedLines = [];
+
 	const cwd = workspace.workspaceFolders[0].uri.path;
     const p = cp.exec("karma start --single-run", {cwd: cwd});
 		p.stderr.on('data', (chunk: string) => {
@@ -16,7 +14,18 @@ export function activate(context: ExtensionContext) {
         });
 
 		p.stdout.on('data', (chunk: string) => {
-            console.log("----got some data stdout");
+			if(chunk.includes("FAILED")){
+				const whereItFailedLineRegEx = /at.*/g
+				const lineNumberRegEx = /\d+\:+\d+/g;
+				const testFileName = /\w+\.+\w+\.+\w+/g;
+
+				const lineText = whereItFailedLineRegEx.exec(chunk)[0];
+				const lineNumber = lineNumberRegEx.exec(lineText)[0];
+				
+				failedLines.push(lineNumber);
+
+				triggerUpdateDecorations();
+			}
             console.log(chunk);   
         });
 
@@ -28,30 +37,45 @@ export function activate(context: ExtensionContext) {
 				console.log(e);
 			}
 		});
-	
-	// create a decorator type that we use to decorate small numbers
-	const smallNumberDecorationType = window.createTextEditorDecorationType({
-		borderWidth: '1px',
-		borderStyle: 'solid',
-		overviewRulerColor: 'blue',
-		overviewRulerLane: OverviewRulerLane.Right,
+
+	const passedTestDecoration = window.createTextEditorDecorationType({
+		overviewRulerColor: 'green',
+		overviewRulerLane: OverviewRulerLane.Left,
 		light: {
-			// this color will be used in light color themes
-			borderColor: 'darkblue'
+		before: {
+			color: '#3BB26B',
+			contentText: '●',
+		},
 		},
 		dark: {
-			// this color will be used in dark color themes
-			borderColor: 'lightblue'
-		}
+		before: {
+			color: '#2F8F51',
+			contentText: '●',
+		},
+		},
+		rangeBehavior: DecorationRangeBehavior.ClosedClosed,
 	});
 
-	// create a decorator type that we use to decorate large numbers
-	const largeNumberDecorationType = window.createTextEditorDecorationType({
-		cursor: 'crosshair',
-		backgroundColor: 'rgba(255,0,0,0.3)'
+	const failedExpectDecorations = window.createTextEditorDecorationType({
+		overviewRulerColor: 'red',
+		overviewRulerLane: OverviewRulerLane.Left,
+		light: {
+		before: {
+			color: 'red',
+			contentText: '●',
+		},
+		},
+		dark: {
+		before: {
+			color: 'red',
+			contentText: '●',
+		},
+		},
+		rangeBehavior: DecorationRangeBehavior.ClosedClosed,
 	});
 
 	let activeEditor = window.activeTextEditor;
+
 	if (activeEditor) {
 		triggerUpdateDecorations();
 	}
@@ -81,23 +105,34 @@ export function activate(context: ExtensionContext) {
 		if (!activeEditor) {
 			return;
 		}
-		const regEx = /(test|it)/g;
+		const regEx = /\sit\(/g;
 		const text = activeEditor.document.getText();
-		const smallNumbers: DecorationOptions[] = [];
-		const largeNumbers: DecorationOptions[] = [];
+
+		const passedTests: DecorationOptions[] = [];
+		const failedExpects: DecorationOptions[] = [];
+
 		let match;
+
 		while (match = regEx.exec(text)) {
 			const startPos = activeEditor.document.positionAt(match.index);
 			const endPos = activeEditor.document.positionAt(match.index + match[0].length);
-			const decoration = { range: new Range(startPos, endPos), hoverMessage: 'Number **' + match[0] + '**' };
-			if (match[0].length < 3) {
-				smallNumbers.push(decoration);
-            } else {
-				largeNumbers.push(decoration);
-			}
+			const decoration = { range: new Range(startPos, endPos), hoverMessage: 'Passed' };
+			passedTests.push(decoration);
 		}
-		activeEditor.setDecorations(smallNumberDecorationType, smallNumbers);
-		activeEditor.setDecorations(largeNumberDecorationType, largeNumbers);
+
+		failedLines.forEach(line => {
+			const splittedLine = line.split(":");
+			const startPos = new Position(parseInt(splittedLine[0]) - 1, parseInt(splittedLine[1]));
+			const textLine: TextLine = activeEditor.document.lineAt(startPos);
+
+			const decoration = { 
+				range: textLine.range
+			};
+			failedExpects.push(decoration);
+		})
+
+		activeEditor.setDecorations(failedExpectDecorations, failedExpects);
+		activeEditor.setDecorations(passedTestDecoration, passedTests);
 	}
 }
 
